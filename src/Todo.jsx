@@ -5,7 +5,8 @@ import React, { useState, useEffect, useCallback } from "react";
 // Create React App: process.env.REACT_APP_API_URL
 
 // Muhim: Backend HTTPS bo'lishi SHART!
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL =
+  import.meta.env.VITE_API_URL || "https://3.66.28.183:3000/api/task";
 
 // Agar API_URL o'rnatilmagan bo'lsa, xatolik chiqarish yoki fallback ishlatish
 if (!API_URL) {
