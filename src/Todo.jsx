@@ -1,7 +1,21 @@
 import React, { useState, useEffect, useCallback } from "react";
 
-// Define API URL as a constant
-const API_URL = "http://3.66.28.183:3000/api/task";
+// --- API URL ni Environment Variable dan olish ---
+// Vite: import.meta.env.VITE_API_URL
+// Create React App: process.env.REACT_APP_API_URL
+
+// Muhim: Backend HTTPS bo'lishi SHART!
+const API_URL = import.meta.env.VITE_API_URL;
+
+// Agar API_URL o'rnatilmagan bo'lsa, xatolik chiqarish yoki fallback ishlatish
+if (!API_URL) {
+  console.error(
+    "Xatolik: VITE_API_URL environment o'zgaruvchisi o'rnatilmagan!"
+  );
+  // Fallback yoki xatolik ko'rsatish logikasini qo'shishingiz mumkin
+  // alert("API konfiguratsiyasida xatolik!");
+}
+// --- End API URL ---
 
 function Todo() {
   // State for tasks, input field, loading status, errors, and order
@@ -13,10 +27,17 @@ function Todo() {
 
   // --- API Fetch Function ---
   const fetchTasks = useCallback(async () => {
+    // API_URL mavjudligini tekshirish
+    if (!API_URL) {
+      setError("API manzili topilmadi. Iltimos, konfiguratsiyani tekshiring.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(API_URL);
+      const response = await fetch(API_URL); // API_URL variable ishlatiladi
       if (!response.ok) {
         let errorMsg = `HTTP error! status: ${response.status}`;
         try {
@@ -27,15 +48,25 @@ function Todo() {
       }
       const data = await response.json();
       const activeTasks = data.filter((task) => !task.isdeleted);
-      setTasks(activeTasks); // Set fetched tasks directly
+      setTasks(activeTasks);
     } catch (e) {
+      // TypeError: Failed to fetch odatda CORS yoki Network error yoki Mixed Content degani
       console.error("Failed to fetch tasks:", e);
-      setError(`Could not load tasks: ${e.message}. Please try again later.`);
+      // Foydalanuvchiga tushunarliroq xabar berish
+      if (e instanceof TypeError && e.message === "Failed to fetch") {
+        setError(
+          `Vazifalarni yuklab bo'lmadi: Serverga ulanishda xatolik (${API_URL}). Tarmoq yoki CORS/HTTPS sozlamalarini tekshiring.`
+        );
+      } else {
+        setError(
+          `Vazifalarni yuklab bo'lmadi: ${e.message}. Iltimos, keyinroq urinib ko'ring.`
+        );
+      }
       setTasks([]);
     } finally {
       setLoading(false);
     }
-  }, []); // No dependencies needed for initial fetch
+  }, []); // API_URL o'zgarmasligi sababli dependency emas
 
   // --- Initial Data Fetch ---
   useEffect(() => {
@@ -44,29 +75,26 @@ function Todo() {
 
   // --- Reversing Effect (operates on local state) ---
   useEffect(() => {
-    // Reorder tasks locally when 'reversed' changes AFTER they have been fetched/updated
     setTasks((currentTasks) => [...currentTasks].reverse());
   }, [reversed]);
 
   // --- CRUD Operations ---
+  // (handleAdd, handleDelete, handleEdit, handleToggleComplete - o'zgarishsiz qoladi,
+  // chunki ular API_URL variable'ni ishlatishadi)
 
   const handleAdd = async () => {
+    if (!API_URL) {
+      setError("API manzili topilmadi.");
+      return;
+    } // Qo'shimcha tekshiruv
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       alert("Task sarlavhasi bo'sh bo'lishi mumkin emas!");
       return;
     }
     setError(null);
-
-    // --- CORRECTED based on Postman ---
-    // API only expects the 'name' field for POST
-    const newTaskData = {
-      name: trimmedTitle,
-    };
-    // --- END CORRECTION ---
-
+    const newTaskData = { name: trimmedTitle };
     const optimisticId = Date.now();
-    // Create optimistic task with default fields for UI consistency
     const optimisticTask = {
       name: trimmedTitle,
       id: optimisticId,
@@ -81,13 +109,11 @@ function Todo() {
 
     try {
       const response = await fetch(API_URL, {
+        // API_URL ishlatiladi
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(newTaskData), // Send only name
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTaskData),
       });
-
       if (!response.ok) {
         let errorMsg = `HTTP error! status: ${response.status}`;
         try {
@@ -96,32 +122,34 @@ function Todo() {
         } catch (jsonError) {}
         throw new Error(errorMsg);
       }
-
-      const addedTask = await response.json(); // Get task with real ID and fields from API
-
-      // Replace optimistic task with real one
+      const addedTask = await response.json();
       setTasks((prev) =>
         prev.map((task) => (task.id === optimisticId ? addedTask : task))
       );
     } catch (e) {
       console.error("Failed to add task:", e);
-      setError(`Could not add task: ${e.message}. Please try again.`);
-      // Rollback optimistic update
+      if (e instanceof TypeError && e.message === "Failed to fetch") {
+        setError(
+          `Vazifa qo'shib bo'lmadi: Serverga ulanishda xatolik (${API_URL}). Tarmoq yoki CORS/HTTPS sozlamalarini tekshiring.`
+        );
+      } else {
+        setError(`Vazifa qo'shib bo'lmadi: ${e.message}.`);
+      }
       setTasks((prev) => prev.filter((task) => task.id !== optimisticId));
       setTitle(trimmedTitle);
     }
   };
 
   const handleDelete = async (id) => {
+    if (!API_URL) {
+      setError("API manzili topilmadi.");
+      return;
+    }
     const originalTasks = [...tasks];
     setTasks((prev) => prev.filter((task) => task.id !== id));
     setError(null);
-
     try {
-      const response = await fetch(`${API_URL}/${id}`, {
-        method: "DELETE", // Correct method from Postman
-      });
-
+      const response = await fetch(`${API_URL}/${id}`, { method: "DELETE" }); // API_URL ishlatiladi
       if (!response.ok && response.status !== 404) {
         let errorMsg = `HTTP error! status: ${response.status}`;
         try {
@@ -131,21 +159,28 @@ function Todo() {
         throw new Error(errorMsg);
       }
       if (response.status === 404) {
-        console.warn(
-          `Task with id ${id} already deleted or not found on server.`
-        );
+        console.warn(`Task ${id} not found.`);
       }
     } catch (e) {
       console.error("Failed to delete task:", e);
-      setError(`Could not delete task: ${e.message}. Please try again.`);
+      if (e instanceof TypeError && e.message === "Failed to fetch") {
+        setError(
+          `Vazifani o'chirib bo'lmadi: Serverga ulanishda xatolik. Tarmoq/CORS/HTTPS tekshiring.`
+        );
+      } else {
+        setError(`Vazifani o'chirib bo'lmadi: ${e.message}.`);
+      }
       setTasks(originalTasks);
     }
   };
 
   const handleEdit = async (id) => {
+    if (!API_URL) {
+      setError("API manzili topilmadi.");
+      return;
+    }
     const taskToEdit = tasks.find((task) => task.id === id);
     if (!taskToEdit) return;
-
     const newTitle = prompt("Sarlavhani yangilang:", taskToEdit.name);
     if (newTitle === null) return;
     const trimmedNewTitle = newTitle.trim();
@@ -153,33 +188,21 @@ function Todo() {
       if (trimmedNewTitle === "") alert("Sarlavha bo'sh bo'lishi mumkin emas!");
       return;
     }
-
     setError(null);
-
-    // --- CORRECTED based on Postman (assuming PATCH for name update) ---
-    // API uses PATCH and likely expects only the changed field
-    const updatedTaskData = {
-      name: trimmedNewTitle,
-    };
-    // --- END CORRECTION ---
-
+    const updatedTaskData = { name: trimmedNewTitle };
     const originalTasks = [...tasks];
-    // Optimistic update for name
     setTasks((prev) =>
       prev.map((task) =>
         task.id === id ? { ...task, name: trimmedNewTitle } : task
       )
     );
-
     try {
-      // --- CORRECTED based on Postman ---
       const response = await fetch(`${API_URL}/${id}`, {
-        method: "PATCH", // Use PATCH
+        // API_URL ishlatiladi
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedTaskData), // Send only name
+        body: JSON.stringify(updatedTaskData),
       });
-      // --- END CORRECTION ---
-
       if (!response.ok) {
         let errorMsg = `HTTP error! status: ${response.status}`;
         try {
@@ -188,47 +211,42 @@ function Todo() {
         } catch (jsonError) {}
         throw new Error(errorMsg);
       }
-      // Optional: Fetch updated task from response if API returns it
-      // const updatedFromServer = await response.json();
-      // setTasks(prev => prev.map(t => t.id === id ? updatedFromServer : t));
     } catch (e) {
       console.error("Failed to edit task:", e);
-      setError(`Could not update task: ${e.message}. Please try again.`);
-      setTasks(originalTasks); // Rollback
+      if (e instanceof TypeError && e.message === "Failed to fetch") {
+        setError(
+          `Vazifani tahrirlab bo'lmadi: Serverga ulanishda xatolik. Tarmoq/CORS/HTTPS tekshiring.`
+        );
+      } else {
+        setError(`Vazifani tahrirlab bo'lmadi: ${e.message}.`);
+      }
+      setTasks(originalTasks);
     }
   };
 
   const handleToggleComplete = async (id) => {
+    if (!API_URL) {
+      setError("API manzili topilmadi.");
+      return;
+    }
     const taskToToggle = tasks.find((task) => task.id === id);
     if (!taskToToggle) return;
-
     setError(null);
     const updatedStatus = !taskToToggle.iscompleted;
-
-    // --- CORRECTED based on Postman ---
-    // API uses PATCH and expects only the 'iscompleted' field
-    const updatedTaskData = {
-      iscompleted: updatedStatus,
-    };
-    // --- END CORRECTION ---
-
+    const updatedTaskData = { iscompleted: updatedStatus };
     const originalTasks = [...tasks];
-    // Optimistic update for completion status
     setTasks((prev) =>
       prev.map((task) =>
         task.id === id ? { ...task, iscompleted: updatedStatus } : task
       )
     );
-
     try {
-      // --- CORRECTED based on Postman ---
       const response = await fetch(`${API_URL}/${id}`, {
-        method: "PATCH", // Use PATCH
+        // API_URL ishlatiladi
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedTaskData), // Send only iscompleted
+        body: JSON.stringify(updatedTaskData),
       });
-      // --- END CORRECTION ---
-
       if (!response.ok) {
         let errorMsg = `HTTP error! status: ${response.status}`;
         try {
@@ -237,27 +255,29 @@ function Todo() {
         } catch (jsonError) {}
         throw new Error(errorMsg);
       }
-      // Optional: Fetch updated task from response if API returns it
-      // const updatedFromServer = await response.json();
-      // setTasks(prev => prev.map(t => t.id === id ? updatedFromServer : t));
     } catch (e) {
       console.error("Failed to toggle task completion:", e);
-      setError(`Could not update task status: ${e.message}. Please try again.`);
-      setTasks(originalTasks); // Rollback
+      if (e instanceof TypeError && e.message === "Failed to fetch") {
+        setError(
+          `Vazifa holatini o'zgartirib bo'lmadi: Serverga ulanishda xatolik. Tarmoq/CORS/HTTPS tekshiring.`
+        );
+      } else {
+        setError(`Vazifa holatini o'zgartirib bo'lmadi: ${e.message}.`);
+      }
+      setTasks(originalTasks);
     }
   };
 
   // --- Event Handlers ---
   const handleInputKeyDown = (e) => {
     if (e.key === "Enter" && !isAddButtonDisabled) {
-      // Prevent add if button disabled
       handleAdd();
     }
   };
 
   const isAddButtonDisabled = title.trim() === "";
 
-  // --- Render Logic (JSX remains the same) ---
+  // --- Render Logic (JSX o'zgarishsiz qoladi) ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 py-6 sm:py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-2xl overflow-hidden">
@@ -286,16 +306,16 @@ function Todo() {
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={handleInputKeyDown}
               placeholder="Add a new task..."
-              disabled={loading}
+              disabled={loading || !API_URL} // API URL yo'q bo'lsa ham disable
             />
             <button
               className={`px-4 py-2.5 sm:px-6 sm:py-3 rounded-lg text-white font-semibold transition duration-200 ease-in-out shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 text-sm sm:text-base ${
-                isAddButtonDisabled || loading
+                isAddButtonDisabled || loading || !API_URL // API URL yo'q bo'lsa ham disable
                   ? "bg-gray-400 cursor-not-allowed"
                   : "bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500"
               }`}
               onClick={handleAdd}
-              disabled={isAddButtonDisabled || loading}
+              disabled={isAddButtonDisabled || loading || !API_URL}
             >
               Add Task
             </button>
@@ -307,28 +327,41 @@ function Todo() {
           )}
 
           {/* Controls and Task List */}
-          {!loading && tasks.length > 0 && (
-            <div className="text-right mb-4">
-              <button
-                className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition duration-200 ease-in-out shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  reversed
-                    ? "bg-purple-600 hover:bg-purple-700 text-white focus:ring-purple-500"
-                    : "bg-gray-200 hover:bg-gray-300 text-gray-700 focus:ring-gray-400"
-                }`}
-                onClick={() => setReversed((prevReversed) => !prevReversed)}
-              >
-                {reversed ? "Order: Newest First" : "Order: Oldest First"}
-              </button>
-            </div>
-          )}
+          {!loading &&
+            tasks.length > 0 &&
+            API_URL && ( // API URL mavjud bo'lsagina ko'rsatish
+              <div className="text-right mb-4">
+                <button
+                  className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition duration-200 ease-in-out shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    reversed
+                      ? "bg-purple-600 hover:bg-purple-700 text-white focus:ring-purple-500"
+                      : "bg-gray-200 hover:bg-gray-300 text-gray-700 focus:ring-gray-400"
+                  }`}
+                  onClick={() => setReversed((prevReversed) => !prevReversed)}
+                >
+                  {reversed ? "Order: Newest First" : "Order: Oldest First"}
+                </button>
+              </div>
+            )}
 
           <div className="space-y-3 sm:space-y-4">
-            {!loading && tasks.length === 0 && !error && (
-              <p className="text-center text-gray-500 py-6 text-base sm:text-lg">
-                No tasks yet. Add one above!
-              </p>
-            )}
             {!loading &&
+              tasks.length === 0 &&
+              !error &&
+              API_URL && ( // API URL mavjud bo'lsagina ko'rsatish
+                <p className="text-center text-gray-500 py-6 text-base sm:text-lg">
+                  No tasks yet. Add one above!
+                </p>
+              )}
+            {!loading &&
+              !API_URL &&
+              !error && ( // Agar API URL yo'q bo'lsa
+                <p className="text-center text-red-500 py-6 text-base sm:text-lg">
+                  API manzili topilmadi. Iltimos, konfiguratsiyani tekshiring.
+                </p>
+              )}
+            {!loading &&
+              API_URL && // Faqat API URL mavjud bo'lsa map qilish
               tasks.map((task) => (
                 <div
                   className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 rounded-lg shadow transition duration-300 ease-in-out ${
